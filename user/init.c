@@ -25,6 +25,10 @@ main(void)
 
   for(;;){
     printf("init: starting sh\n");
+    printf("Student ID: 2020314492\n");
+    printf("Name: Donggyu Seo\n");
+    printf("============Your message============\n");
+    printf("Hello, xv6!\n");
     pid = fork();
     if(pid < 0){
       printf("init: fork failed\n");
