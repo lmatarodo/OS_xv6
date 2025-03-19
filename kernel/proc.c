@@ -55,6 +55,7 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
+      p->nice = 20;  // 기본 nice 값을 20으로 설정
   }
 }
 
@@ -427,6 +428,53 @@ wait(uint64 addr)
     if(!havekids || killed(p)){
       release(&wait_lock);
       return -1;
+    }
+    
+    // Wait for a child to exit.
+    sleep(p, &wait_lock);  //DOC: wait-sleep
+  }
+}
+
+// Wait for a specific child process to exit and return its pid.
+// Return 0 when the specified process terminates successfully.
+// Return -1 if the process does not exist or if the calling process does not have permission to wait for it.
+int
+waitpid(int pid, int *status)
+{
+  struct proc *np;
+  int havekids;
+  struct proc *p = myproc();
+
+  acquire(&wait_lock);
+
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(np = proc; np < &proc[NPROC]; np++){
+      if(np->state == UNUSED)
+        continue;
+      if(np->parent != p)
+        continue;
+      if(np->pid != pid)
+        continue;
+      havekids = 1;
+      if(np->state == ZOMBIE){
+        // Found one.
+        if(status != 0 && copyout(p->pagetable, (uint64)status, (char *)&np->xstate,
+                                sizeof(np->xstate)) < 0) {
+          release(&wait_lock);
+          return -1;
+        }
+        freeproc(np);
+        release(&wait_lock);
+        return 0;  // Return 0 on successful termination
+      }
+    }
+
+    // No point waiting if we don't have any children or the specified process doesn't exist.
+    if(!havekids || killed(p)){
+      release(&wait_lock);
+      return -1;  // Return -1 if process doesn't exist or no permission
     }
     
     // Wait for a child to exit.
