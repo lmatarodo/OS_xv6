@@ -2,7 +2,6 @@
 int             fork(void);
 int             exit(int) __attribute__((noreturn));
 int             wait(uint64);
-int             waitpid(int pid, int *status);
 int             pipe(int*);
 int             read(int, uint64, int);
 int             write(int, uint64, int);
@@ -22,3 +21,4 @@ int             getnice(int pid);
 int             setnice(int pid, int value);
 void            ps(int pid);
 void            meminfo(void); 
+int             waitpid(int pid, int *status);

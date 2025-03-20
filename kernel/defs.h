@@ -63,7 +63,6 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
-int             waitpid(int, int*);
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -112,6 +111,7 @@ int             getnice(int);
 int             setnice(int, int);
 void            ps(int pid);
 void            meminfo(void);
+int             waitpid(int, int*);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
