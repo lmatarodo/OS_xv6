@@ -1,0 +1,24 @@
+// system calls
+int             fork(void);
+int             exit(int) __attribute__((noreturn));
+int             wait(uint64);
+int             waitpid(int pid, int *status);
+int             pipe(int*);
+int             read(int, uint64, int);
+int             write(int, uint64, int);
+int             close(int);
+int             kill(int);
+int             exec(char*, char**);
+int             open(char*, int);
+int             mknod(char*, short, short);
+int             unlink(char*);
+int             fstat(int fd, struct stat*);
+int             link(char*, char*);
+int             mkdir(char*);
+int             chdir(char*);
+int             dup(int);
+int             getreadcount(void);
+int             getnice(int pid);
+int             setnice(int pid, int value);
+void            ps(int pid);
+void            meminfo(void); 

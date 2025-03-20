@@ -5,8 +5,19 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "elf.h"
+#include "kalloc.h" // Used when printing memory info
 
 struct cpu cpus[NCPU];
+
+static char *states[] = {
+  [UNUSED]    "unused",
+  [USED]      "used",
+  [SLEEPING]  "SLEEPING",
+  [RUNNABLE]  "RUNNABLE",
+  [RUNNING]   "RUNNING",
+  [ZOMBIE]    "ZOMBIE"
+}; // Define the states array
 
 struct proc proc[NPROC];
 
@@ -55,7 +66,7 @@ procinit(void)
       initlock(&p->lock, "proc");
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
-      p->nice = 20;  // 기본 nice 값을 20으로 설정
+      p->nice = 20;  // Set default nice value to 20
   }
 }
 
@@ -435,53 +446,6 @@ wait(uint64 addr)
   }
 }
 
-// Wait for a specific child process to exit and return its pid.
-// Return 0 when the specified process terminates successfully.
-// Return -1 if the process does not exist or if the calling process does not have permission to wait for it.
-int
-waitpid(int pid, int *status)
-{
-  struct proc *np;
-  int havekids;
-  struct proc *p = myproc();
-
-  acquire(&wait_lock);
-
-  for(;;){
-    // Scan through table looking for exited children.
-    havekids = 0;
-    for(np = proc; np < &proc[NPROC]; np++){
-      if(np->state == UNUSED)
-        continue;
-      if(np->parent != p)
-        continue;
-      if(np->pid != pid)
-        continue;
-      havekids = 1;
-      if(np->state == ZOMBIE){
-        // Found one.
-        if(status != 0 && copyout(p->pagetable, (uint64)status, (char *)&np->xstate,
-                                sizeof(np->xstate)) < 0) {
-          release(&wait_lock);
-          return -1;
-        }
-        freeproc(np);
-        release(&wait_lock);
-        return 0;  // Return 0 on successful termination
-      }
-    }
-
-    // No point waiting if we don't have any children or the specified process doesn't exist.
-    if(!havekids || killed(p)){
-      release(&wait_lock);
-      return -1;  // Return -1 if process doesn't exist or no permission
-    }
-    
-    // Wait for a child to exit.
-    sleep(p, &wait_lock);  //DOC: wait-sleep
-  }
-}
-
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -718,14 +682,6 @@ either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 void
 procdump(void)
 {
-  static char *states[] = {
-  [UNUSED]    "unused",
-  [USED]      "used",
-  [SLEEPING]  "sleep ",
-  [RUNNABLE]  "runble",
-  [RUNNING]   "run   ",
-  [ZOMBIE]    "zombie"
-  };
   struct proc *p;
   char *state;
 
@@ -741,3 +697,134 @@ procdump(void)
     printf("\n");
   }
 }
+
+int
+getnice(int pid)
+{
+  struct proc *p;
+  int nice = -1; // Initialize nice to -1
+
+  for(p = proc; p < &proc[NPROC]; p++) { // Iterate through all processes
+    acquire(&p->lock);
+    if(p->pid == pid) { // Check if the process ID matches
+      nice = p->nice; // Get the nice value
+      release(&p->lock);
+      return nice; // Return the nice value
+    }
+    release(&p->lock);
+  }
+  return -1; // Return -1 if the process ID is not found
+}
+
+int
+setnice(int pid, int value)
+{
+  struct proc *p;
+
+  // Check if the value is in the valid range (0~39)
+  if (value < 0 || value > 39)
+    return -1; // Return -1 if the value is not in the valid range
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->pid == pid) { // Check if the process ID matches
+      p->nice = value; // Set the nice value
+      release(&p->lock);
+      return 0; // Return 0 if the nice value is set successfully
+    }
+    release(&p->lock);
+  }
+  return -1; // Return -1 if the process ID is not found
+}
+
+void
+ps(int pid)
+{
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    if(p->state == UNUSED)
+      continue; // If the process is unused, skip it
+    
+    if(pid != 0 && p->pid != pid)
+      continue; // If pid is not 0 and does not match the process ID, skip this process
+
+    if(p == proc) {  // If this is the first process, print the header
+      printf("name      pid     state     priority\n");
+    }
+
+    // Print the process information
+    acquire(&p->lock);
+    printf("%s", p->name);
+    for(int i = strlen(p->name); i < 10; i++) printf(" ");
+    printf("%d", p->pid);
+    for(int i = 1; i < 8; i++) printf(" ");
+    printf("%s", states[p->state]);
+    for(int i = strlen(states[p->state]); i < 10; i++) printf(" ");
+    printf("%d\n", p->nice);
+    release(&p->lock);
+  }
+}
+
+void
+meminfo(void)
+{
+  struct run *r; // pointer that points to the free memory
+  uint64 free_memory = 0; // variable to store the free memory size
+  
+  acquire(&kmem.lock); // acquire the lock
+  r = kmem.freelist; // assign the free memory to r
+  while(r) { // while r is not null
+    free_memory += PGSIZE; // add the page size to the free memory
+    r = r->next; // move to the next free memory
+  }
+  release(&kmem.lock); // release the lock
+  
+  printf("Available memory: %ld bytes\n", free_memory); // print the free memory
+}
+
+int
+waitpid(int pid, int *status)
+{
+  struct proc *np;
+  int havekids; // check if the process has children
+  struct proc *p = myproc();
+
+  acquire(&wait_lock); // acquire the lock
+
+  for(;;) {
+    
+    havekids = 0;
+
+    for(np = proc; np < &proc[NPROC]; np++){ // scan through the table
+      if(np->state == UNUSED)
+        continue; // if the process is unused, skip it
+      
+      if(np->parent != p)
+        continue; // if the process is not the parent, skip it
+      
+      if(np->pid != pid)
+        continue; // if the process id is not the same, skip it
+      havekids = 1; // if the process has children, set havekids to 1
+      
+      if(np->state == ZOMBIE){ // if the process is a zombie
+        if(status != 0 && copyout(p->pagetable, (uint64)status, (char *)&np->xstate,
+                                sizeof(np->xstate)) < 0) { // copy the exit status to the parent
+          release(&wait_lock);
+          return -1; // if the copyout fails, return -1
+        }
+        freeproc(np); // free the process
+        release(&wait_lock);
+        return 0;  // Return 0 on successful termination
+      }
+    }
+
+    if(!havekids || killed(p)){
+      release(&wait_lock);
+      return -1;  // Return -1 if process doesn't exist or no permission
+    }
+    
+    sleep(p, &wait_lock);  // wait for the process to exit
+  }  
+}
+

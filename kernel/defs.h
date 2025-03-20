@@ -84,7 +84,7 @@ void            printfinit(void);
 
 // proc.c
 int             cpuid(void);
-void            exit(int);
+void            exit(int status);
 int             fork(void);
 int             growproc(int);
 void            proc_mapstacks(pagetable_t);
@@ -97,16 +97,21 @@ struct cpu*     mycpu(void);
 struct cpu*     getmycpu(void);
 struct proc*    myproc();
 void            procinit(void);
-void            scheduler(void) __attribute__((noreturn));
+void            scheduler(void);
 void            sched(void);
-void            sleep(void*, struct spinlock*);
+void            sleep(void *chan, struct spinlock *lk);
 void            userinit(void);
 int             wait(uint64);
-void            wakeup(void*);
+void            wakeup(void *chan);
 void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+int             allocpid(void);
+int             getnice(int);
+int             setnice(int, int);
+void            ps(int pid);
+void            meminfo(void);
 
 // swtch.S
 void            swtch(struct context*, struct context*);

@@ -84,6 +84,46 @@ main()
         }
         waitpid(child_pid, &status);  // Clean up child process
     }
+
+    // Test 4: Parent waits for child, child waits for grandchild
+    write_str("\nTest 4: Parent waits for child, child waits for grandchild\n");
+
+    child_pid = fork();
+    if (child_pid == 0) {
+        // Child process
+        int grandchild_pid = fork();
+        if (grandchild_pid == 0) {
+            // Grandchild process
+            printf("Grandchild process started (pid: %d)\n", getpid());
+            sleep(10);
+            printf("Grandchild process exiting...\n");
+            exit(0);
+        } else {
+            // Child process waits for grandchild
+            printf("Child process (pid: %d) waiting for grandchild (pid: %d)\n", getpid(), grandchild_pid);
+            int grandchild_status;
+            int result = waitpid(grandchild_pid, &grandchild_status);
+            if (result == 0) {
+                write_str("Test 4 Success: Child successfully waited for grandchild\n");
+            } else {
+                write_str("Test 4 Failed: Child waitpid() returned unexpected value\n");
+            }
+            printf("Child process exiting...\n");
+            exit(0);
+        }
+    } else {
+        // Parent process waits for child
+        printf("Parent process (pid: %d) waiting for child (pid: %d)\n", getpid(), child_pid);
+        sleep(15);  // Ensure child has time to wait for grandchild
+        int child_status;
+        int result = waitpid(child_pid, &child_status);
+        if (result == 0) {
+            write_str("Test 4 Success: Parent successfully waited for child\n");
+        } else {
+            write_str("Test 4 Failed: Parent waitpid() returned unexpected value\n");
+        }
+    }
+
     
     exit(0);
 } 
