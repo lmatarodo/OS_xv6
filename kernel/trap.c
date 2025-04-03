@@ -76,10 +76,6 @@ usertrap(void)
   if(killed(p))
     exit(-1);
 
-  // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
-    yield();
-
   usertrapret();
 }
 
@@ -150,9 +146,6 @@ kerneltrap()
     panic("kerneltrap");
   }
 
-  // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2 && myproc() != 0)
-    yield();
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.
@@ -163,17 +156,38 @@ kerneltrap()
 void
 clockintr()
 {
-  if(cpuid() == 0){
-    acquire(&tickslock);
-    ticks++;
-    wakeup(&ticks);
-    release(&tickslock);
+  acquire(&tickslock);
+  ticks++;
+  struct proc *p = myproc();
+  
+  // If there is a currently running process, update EEVDF-related fields
+  if(p != 0 && p->state == RUNNING) {
+    p->runtime++;           // Increase actual runtime
+    p->time_slice--;        // Decrease remaining time slice
+    p->total_tick++;        // Increase total tick count
+    
+    // Update vruntime (apply the exact formula for EEVDF)
+    uint64 delta_runtime = 1;  
+    uint64 scaled_runtime = delta_runtime * 1024 / p->weight;  
+    p->vruntime += scaled_runtime;
+
+    // If time_slice is 0, update vdeadline and immediately yield
+    if(p->time_slice <= 0) {
+      p->vdeadline = p->vruntime + (5 * 1024 / p->weight);  // Add the virtual runtime for the next 5 ticks
+      p->time_slice = 5;  // Reset time slice
+      release(&tickslock);  // Release tickslock before calling yield()
+      yield();  // Yield CPU
+      return;  // Return after yield()
+    }
   }
+  
+  wakeup(&ticks);
+  release(&tickslock);
 
   // ask for the next timer interrupt. this also clears
-  // the interrupt request. 1000000 is about a tenth
+  // the interrupt request. 100000 is about a thousandth
   // of a second.
-  w_stimecmp(r_time() + 1000000);
+  w_stimecmp(r_time() + 100000);
 }
 
 // check if it's an external interrupt or software interrupt,

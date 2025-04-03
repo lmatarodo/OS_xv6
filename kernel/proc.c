@@ -10,6 +10,51 @@
 
 struct cpu cpus[NCPU];
 
+// Array of weights according to nice values (nice=0~39)
+static int nice_to_weight[40] = {
+    88818,  // nice = 0
+    71054,  // nice = 1
+    56843,  // nice = 2
+    45475,  // nice = 3
+    36380,  // nice = 4
+    29104,  // nice = 5
+    23283,  // nice = 6
+    18626,  // nice = 7
+    14901,  // nice = 8
+    11921,  // nice = 9
+    9537,   // nice = 10
+    7629,   // nice = 11
+    6104,   // nice = 12
+    4883,   // nice = 13
+    3906,   // nice = 14
+    3125,   // nice = 15
+    2500,   // nice = 16
+    2000,   // nice = 17
+    1600,   // nice = 18
+    1280,   // nice = 19
+    1024,   // nice = 20
+    819,    // nice = 21
+    655,    // nice = 22
+    524,    // nice = 23
+    419,    // nice = 24
+    336,    // nice = 25
+    268,    // nice = 26
+    215,    // nice = 27
+    172,    // nice = 28
+    137,    // nice = 29
+    110,    // nice = 30
+    88,     // nice = 31
+    70,     // nice = 32
+    56,     // nice = 33
+    45,     // nice = 34
+    36,     // nice = 35
+    29,     // nice = 36
+    23,     // nice = 37
+    18,     // nice = 38
+    15      // nice = 39
+};
+
+
 static char *states[] = {
   [UNUSED]    "unused",
   [USED]      "used",
@@ -67,6 +112,7 @@ procinit(void)
       p->state = UNUSED;
       p->kstack = KSTACK((int) (p - proc));
       p->nice = 20;  // Set default nice value to 20
+      p->weight = nice_to_weight[20];  // Set default weight value
   }
 }
 
@@ -157,6 +203,14 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
+  // EEVDF scheduler related fields initialization
+  p->runtime = 0;        // Initialize actual runtime
+  p->vruntime = 0;       // Initialize virtual runtime
+  p->vdeadline = 0;      // Initialize virtual deadline
+  p->time_slice = 5;     // Initialize time slice (5 ticks)
+  p->weight = 1024;      // Default weight (when nice=20)
+  p->total_tick = 0;     // Initialize total tick count
 
   return p;
 }
@@ -330,7 +384,15 @@ fork(void)
   np->parent = p;
   release(&wait_lock);
 
+  // EEVDF scheduler related fields initialization
   acquire(&np->lock);
+  np->nice = p->nice;           // Copy parent's nice value
+  np->weight = p->weight;       // Copy parent's weight value
+  np->runtime = 0;              // Initialize actual runtime to 0
+  np->vruntime = p->vruntime;   // Copy parent's vruntime value
+  np->vdeadline = np->vruntime + (5 * 1024 / np->weight); // Copy parent's vdeadline value
+  np->time_slice = 5;           // Initialize time slice
+  np->total_tick = 0;           // Initialize total tick count to 0
   np->state = RUNNABLE;
   release(&np->lock);
 
@@ -446,6 +508,56 @@ wait(uint64 addr)
   }
 }
 
+// EEVDF data collection function
+void
+collect_eevdf_data(struct eevdf_data *data)
+{
+  struct proc *p;
+  
+  data->min_vruntime = (uint64)-1;  // Initialize to maximum value
+  data->sum_weight = 0;
+  data->sum_weighted_diff = 0;
+
+  // Collect data from all processes in one pass
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == RUNNING || p->state == RUNNABLE) {
+      // Calculate sum_weight and min_vruntime
+      data->sum_weight += p->weight;
+      if(p->vruntime < data->min_vruntime)
+        data->min_vruntime = p->vruntime;
+    }
+    release(&p->lock);
+  }
+
+  // If min_vruntime is still the maximum value (no RUNNING/RUNNABLE processes),
+  // set it to 0 for eligibility calculation
+  if(data->min_vruntime == (uint64)-1)
+    data->min_vruntime = 0;
+
+  // Second pass: calculate sum_weighted_diff
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == RUNNING || p->state == RUNNABLE) {
+      data->sum_weighted_diff += (p->weight * (p->vruntime - data->min_vruntime));
+    }
+    release(&p->lock);
+  }
+}
+
+// EEVDF eligibility calculation function
+int
+is_eligible(struct proc *p, struct eevdf_data *data)
+{
+  if(data->sum_weight == 0)
+    return 1;
+
+  uint64 p_diff = (p->vruntime - data->min_vruntime) * data->sum_weight;
+  uint64 avg_diff = data->sum_weighted_diff;
+  
+  return avg_diff >= p_diff;
+}
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -457,18 +569,40 @@ void
 scheduler(void)
 {
   struct proc *p;
-  struct cpu *c = mycpu();
+  struct cpu *c;
+  struct proc *best = 0;  // Variable to store the best process
+  struct eevdf_data data;
 
+  c = mycpu();
   c->proc = 0;
+
   for(;;){
-    // The most recent process to run may have had interrupts
-    // turned off; enable them to avoid a deadlock if all
-    // processes are waiting.
+    // Enable interrupts on this processor.
     intr_on();
 
-    int found = 0;
+    // Collect EEVDF data
+    collect_eevdf_data(&data);
+
+    // Traverse all processes to find the best process
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
+      if(p->state == RUNNABLE && is_eligible(p, &data)) {
+        if(!best || p->vdeadline < best->vdeadline) {
+          // If there is already a selected process, release the lock
+          if(best)
+            release(&best->lock);
+          best = p; // Select the best process
+        } else {
+          release(&p->lock);
+        }
+      } else {
+        release(&p->lock);
+      }
+    }
+
+    // If the best process is selected
+    if(best) {
+      p = best;
       if(p->state == RUNNABLE) {
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
@@ -480,14 +614,9 @@ scheduler(void)
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
-        found = 1;
       }
       release(&p->lock);
-    }
-    if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
-      intr_on();
-      asm volatile("wfi");
+      best = 0;
     }
   }
 }
@@ -525,6 +654,13 @@ yield(void)
 {
   struct proc *p = myproc();
   acquire(&p->lock);
+  
+  // Update vdeadline when time_slice is exhausted
+  if(p->time_slice <= 0) {
+    p->vdeadline = p->vruntime + (5 * 1024 / p->weight);  // Add the virtual runtime for the next 5 ticks
+    p->time_slice = 5;  // Reset time slice
+  }
+  
   p->state = RUNNABLE;
   sched();
   release(&p->lock);
@@ -592,11 +728,17 @@ wakeup(void *chan)
 {
   struct proc *p;
 
+  // Wake up processes in sleep state and update only time_slice and vdeadline
   for(p = proc; p < &proc[NPROC]; p++) {
     if(p != myproc()){
       acquire(&p->lock);
       if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
+        
+        // Reset time_slice and recalculate vdeadline
+        // vruntime remains unchanged
+        p->time_slice = 5;  // Initialize time slice
+        p->vdeadline = p->vruntime + (5 * 1024 / p->weight);  // Recalculate vdeadline
       }
       release(&p->lock);
     }
@@ -720,50 +862,21 @@ int
 setnice(int pid, int value)
 {
   struct proc *p;
-
-  // Check if the value is in the valid range (0~39)
-  if (value < 0 || value > 39)
-    return -1; // Return -1 if the value is not in the valid range
+  int old_nice;
 
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
-    if(p->pid == pid) { // Check if the process ID matches
-      p->nice = value; // Set the nice value
+    if(p->pid == pid) {
+      old_nice = p->nice;
+      p->nice = value;
+      p->weight = nice_to_weight[value];  // Update weight value
+      p->vdeadline = p->vruntime + (5 * 1024 / p->weight);  // Recalculate vdeadline
       release(&p->lock);
-      return 0; // Return 0 if the nice value is set successfully
+      return old_nice;
     }
     release(&p->lock);
   }
-  return -1; // Return -1 if the process ID is not found
-}
-
-void
-ps(int pid)
-{
-  struct proc *p;
-
-  for(p = proc; p < &proc[NPROC]; p++) {
-    if(p->state == UNUSED)
-      continue; // If the process is unused, skip it
-    
-    if(pid != 0 && p->pid != pid)
-      continue; // If pid is not 0 and does not match the process ID, skip this process
-
-    if(p == proc) {  // If this is the first process, print the header
-      printf("name      pid     state     priority\n");
-    }
-
-    // Print the process information
-    acquire(&p->lock);
-    printf("%s", p->name);
-    for(int i = strlen(p->name); i < 10; i++) printf(" ");
-    printf("%d", p->pid);
-    for(int i = 1; i < 8; i++) printf(" ");
-    printf("%s", states[p->state]);
-    for(int i = strlen(states[p->state]); i < 10; i++) printf(" ");
-    printf("%d\n", p->nice);
-    release(&p->lock);
-  }
+  return -1;
 }
 
 void
@@ -828,3 +941,58 @@ waitpid(int pid, int *status)
   }  
 }
 
+void
+ps(int pid)
+{
+  struct proc *p;
+  char *state;
+
+  // Print header
+  printf("=== TEST START ===\n");
+  printf("name\tpid\tstate\t\tpriority\truntime/weight\truntime\t\tvruntime\tvdeadline\tis_eligible\ttick %d\n", ticks);
+
+  // Collect EEVDF data
+  struct eevdf_data data;
+  collect_eevdf_data(&data);
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    if(p->state == UNUSED)
+      continue;
+    
+    if(pid != 0 && p->pid != pid)
+      continue;
+
+    if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
+      state = states[p->state];
+    else
+      state = "???";
+    
+    int eligible = is_eligible(p, &data);
+    int runtime_per_weight = p->weight > 0 ? p->runtime / p->weight : 0;
+
+    // Convert to millitick units (multiply by 1000)
+    uint64 milli_runtime = p->runtime * 1000;
+    uint64 milli_vruntime = p->vruntime * 1000;
+    uint64 milli_vdeadline = p->vdeadline * 1000;
+    uint64 milli_runtime_per_weight = runtime_per_weight * 1000;
+
+    if(p->state == RUNNING) {
+      printf("%s\t%d\t%s\t\t%d\t\t%ld\t\t%ld\t\t%ld\t\t%ld\t\t%s\n",
+            p->name, p->pid, state, p->nice,
+            milli_runtime_per_weight, milli_runtime, milli_vruntime,
+            milli_vdeadline, eligible ? "true" : "false");
+    }
+    else if(p->state == ZOMBIE) {
+      printf("%s\t%d\t%s\t\t%d\t\t%ld\t\t%ld\t\t%ld\t\t%ld\t\t%s\n",
+            p->name, p->pid, state, p->nice,
+            milli_runtime_per_weight, milli_runtime, milli_vruntime,
+            milli_vdeadline, eligible ? "true" : "false");
+    }
+    else {
+      printf("%s\t%d\t%s\t%d\t\t%ld\t\t%ld\t\t%ld\t\t%ld\t\t%s\n",
+            p->name, p->pid, state, p->nice,
+            milli_runtime_per_weight, milli_runtime, milli_vruntime,
+            milli_vdeadline, eligible ? "true" : "false");
+    }
+  }
+}

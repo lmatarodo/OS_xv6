@@ -9,6 +9,13 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+// EEVDF 스케줄러 데이터 구조체
+struct eevdf_data {
+  long min_vruntime;
+  long sum_weight;
+  long sum_weighted_diff;
+};
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -109,9 +116,10 @@ void            procdump(void);
 int             allocpid(void);
 int             getnice(int);
 int             setnice(int, int);
-void            ps(int pid);
 void            meminfo(void);
+void            ps(int);
 int             waitpid(int, int*);
+int             is_eligible(struct proc*, struct eevdf_data*);
 
 // swtch.S
 void            swtch(struct context*, struct context*);

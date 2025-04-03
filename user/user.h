@@ -24,7 +24,7 @@ int sleep(int);
 int uptime(void);
 int getnice(int);
 int setnice(int, int);
-int ps(int);
+void ps(int);
 int meminfo(void);
 int waitpid(int, int*);
 

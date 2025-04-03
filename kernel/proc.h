@@ -92,6 +92,12 @@ struct proc {
   int xstate;                  // Exit status to be returned to parent's wait
   int pid;                     // Process ID
   int nice;                    // Process nice value
+  int runtime;                 // Actual runtime of the process
+  int vruntime;                // Virtual runtime of the process
+  int vdeadline;               // Virtual deadline of the process
+  int time_slice;              // Remaining time slice
+  int weight;                  // Process weight based on nice value
+  int total_tick;              // Total ticks since process creation
 
   // wait_lock must be held when using this:
   struct proc *parent;         // Parent process
