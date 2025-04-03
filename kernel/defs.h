@@ -9,7 +9,7 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
-// EEVDF 스케줄러 데이터 구조체
+// EEVD scheduler data structure
 struct eevdf_data {
   long min_vruntime;
   long sum_weight;
