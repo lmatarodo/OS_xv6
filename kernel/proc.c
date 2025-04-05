@@ -949,7 +949,7 @@ ps(int pid)
 
   // Print header
   printf("=== TEST START ===\n");
-  printf("name\tpid\tstate\t\tpriority\truntime/weight\truntime\t\tvruntime\tvdeadline\tis_eligible\ttick %d\n", ticks);
+  printf("name\tpid\tstate\t\tpriority\truntime/weight\truntime\t\tvruntime\tvdeadline\tis_eligible\ttick %u\n", ticks * 1000);
 
   // Collect EEVDF data
   struct eevdf_data data;
@@ -968,13 +968,12 @@ ps(int pid)
       state = "???";
     
     int eligible = is_eligible(p, &data);
-    int runtime_per_weight = p->weight > 0 ? p->runtime / p->weight : 0;
+    uint64 milli_runtime_per_weight = p->weight > 0 ? (p->runtime * 1000) / p->weight : 0;
 
     // Convert to millitick units (multiply by 1000)
     uint64 milli_runtime = p->runtime * 1000;
     uint64 milli_vruntime = p->vruntime * 1000;
     uint64 milli_vdeadline = p->vdeadline * 1000;
-    uint64 milli_runtime_per_weight = runtime_per_weight * 1000;
 
     if(p->state == RUNNING) {
       printf("%s\t%d\t%s\t\t%d\t\t%ld\t\t%ld\t\t%ld\t\t%ld\t\t%s\n",
