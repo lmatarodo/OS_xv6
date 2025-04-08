@@ -513,15 +513,16 @@ void
 collect_eevdf_data(struct eevdf_data *data)
 {
   struct proc *p;
+  struct proc *current = myproc();
   
   data->min_vruntime = (uint64)-1;  // Initialize to maximum value
   data->sum_weight = 0;
   data->sum_weighted_diff = 0;
 
-  // Collect data from all processes in one pass
+  // Iterate through all processes at once to collect data
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
-    if(p->state == RUNNING || p->state == RUNNABLE) {
+    if(p->state == RUNNING || p->state == RUNNABLE || p == current) {
       // Calculate sum_weight and min_vruntime
       data->sum_weight += p->weight;
       if(p->vruntime < data->min_vruntime)
@@ -530,15 +531,15 @@ collect_eevdf_data(struct eevdf_data *data)
     release(&p->lock);
   }
 
-  // If min_vruntime is still the maximum value (no RUNNING/RUNNABLE processes),
-  // set it to 0 for eligibility calculation
+  // If min_vruntime is still maximum value (i.e., no RUNNING/RUNNABLE processes)
+  // Set it to 0 for eligibility calculation
   if(data->min_vruntime == (uint64)-1)
     data->min_vruntime = 0;
 
-  // Second pass: calculate sum_weighted_diff
+  // Second iteration: calculate sum_weighted_diff
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
-    if(p->state == RUNNING || p->state == RUNNABLE) {
+    if(p->state == RUNNING || p->state == RUNNABLE || p == current) {
       data->sum_weighted_diff += (p->weight * (p->vruntime - data->min_vruntime));
     }
     release(&p->lock);
@@ -586,12 +587,24 @@ scheduler(void)
     // Traverse all processes to find the best process
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if(p->state == RUNNABLE && is_eligible(p, &data)) {
-        if(!best || p->vdeadline < best->vdeadline) {
-          // If there is already a selected process, release the lock
-          if(best)
-            release(&best->lock);
-          best = p; // Select the best process
+      if(p->state == RUNNABLE) {
+        // Calculate eligibility directly using the formula
+        int eligible = 1;  // Default to eligible if sum_weight is 0
+        if(data.sum_weight > 0) {
+          uint64 p_diff = (p->vruntime - data.min_vruntime) * data.sum_weight;
+          uint64 avg_diff = data.sum_weighted_diff;
+          eligible = (avg_diff >= p_diff);
+        }
+        
+        if(eligible) {
+          if(!best || p->vdeadline < best->vdeadline) {
+            // If there is already a selected process, release the lock
+            if(best)
+              release(&best->lock);
+            best = p; // Select the best process
+          } else {
+            release(&p->lock);
+          }
         } else {
           release(&p->lock);
         }
@@ -967,7 +980,6 @@ ps(int pid)
     else
       state = "???";
     
-    int eligible = is_eligible(p, &data);
     uint64 milli_runtime_per_weight = p->weight > 0 ? (p->runtime * 1000) / p->weight : 0;
 
     // Convert to millitick units (multiply by 1000)
@@ -979,19 +991,19 @@ ps(int pid)
       printf("%s\t%d\t%s\t\t%d\t\t%ld\t\t%ld\t\t%ld\t\t%ld\t\t%s\n",
             p->name, p->pid, state, p->nice,
             milli_runtime_per_weight, milli_runtime, milli_vruntime,
-            milli_vdeadline, eligible ? "true" : "false");
+            milli_vdeadline, is_eligible(p, &data) ? "true" : "false");
     }
     else if(p->state == ZOMBIE) {
       printf("%s\t%d\t%s\t\t%d\t\t%ld\t\t%ld\t\t%ld\t\t%ld\t\t%s\n",
             p->name, p->pid, state, p->nice,
             milli_runtime_per_weight, milli_runtime, milli_vruntime,
-            milli_vdeadline, eligible ? "true" : "false");
+            milli_vdeadline, is_eligible(p, &data) ? "true" : "false");
     }
     else {
       printf("%s\t%d\t%s\t%d\t\t%ld\t\t%ld\t\t%ld\t\t%ld\t\t%s\n",
             p->name, p->pid, state, p->nice,
             milli_runtime_per_weight, milli_runtime, milli_vruntime,
-            milli_vdeadline, eligible ? "true" : "false");
+            milli_vdeadline, is_eligible(p, &data) ? "true" : "false");
     }
   }
 }
