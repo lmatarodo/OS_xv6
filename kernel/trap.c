@@ -168,12 +168,12 @@ clockintr()
     
     // Update vruntime (apply the exact formula for EEVDF)
     uint64 delta_runtime = 1;  
-    uint64 scaled_runtime = delta_runtime * 1024 / p->weight;  
+    uint64 scaled_runtime = delta_runtime * 1024 * 1000 / p->weight;  // Use millitick units
     p->vruntime += scaled_runtime;
 
     // If time_slice is 0, update vdeadline and immediately yield
     if(p->time_slice <= 0) {
-      p->vdeadline = p->vruntime + (5 * 1024 / p->weight);  // Add the virtual runtime for the next 5 ticks
+      p->vdeadline = p->vruntime + (5 * 1024 * 1000 / p->weight);  // Use millitick units
       p->time_slice = 5;  // Reset time slice
       release(&tickslock);  // Release tickslock before calling yield()
       yield();  // Yield CPU

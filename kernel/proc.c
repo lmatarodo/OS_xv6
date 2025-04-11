@@ -540,7 +540,8 @@ collect_eevdf_data(struct eevdf_data *data)
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if(p->state == RUNNING || p->state == RUNNABLE || p == current) {
-      data->sum_weighted_diff += (p->weight * (p->vruntime - data->min_vruntime));
+      // Use millitick units (multiply by 1000)
+      data->sum_weighted_diff += (p->weight * (p->vruntime - data->min_vruntime) * 1000);
     }
     release(&p->lock);
   }
@@ -553,7 +554,8 @@ is_eligible(struct proc *p, struct eevdf_data *data)
   if(data->sum_weight == 0)
     return 1;
 
-  uint64 p_diff = (p->vruntime - data->min_vruntime) * data->sum_weight;
+  // Use millitick units (multiply by 1000)
+  uint64 p_diff = (p->vruntime - data->min_vruntime) * data->sum_weight * 1000;
   uint64 avg_diff = data->sum_weighted_diff;
   
   return avg_diff >= p_diff;
@@ -591,7 +593,7 @@ scheduler(void)
         // Calculate eligibility directly using the formula
         int eligible = 1;  // Default to eligible if sum_weight is 0
         if(data.sum_weight > 0) {
-          uint64 p_diff = (p->vruntime - data.min_vruntime) * data.sum_weight;
+          uint64 p_diff = (p->vruntime - data.min_vruntime) * data.sum_weight * 1000;
           uint64 avg_diff = data.sum_weighted_diff;
           eligible = (avg_diff >= p_diff);
         }
@@ -670,7 +672,8 @@ yield(void)
   
   // Update vdeadline when time_slice is exhausted
   if(p->time_slice <= 0) {
-    p->vdeadline = p->vruntime + (5 * 1024 / p->weight);  // Add the virtual runtime for the next 5 ticks
+    // Calculate vdeadline in millitick units (multiply by 1000)
+    p->vdeadline = p->vruntime + (5 * 1024 * 1000 / p->weight);  // Add virtual runtime for next 5 ticks
     p->time_slice = 5;  // Reset time slice
   }
   
@@ -751,7 +754,8 @@ wakeup(void *chan)
         // Reset time_slice and recalculate vdeadline
         // vruntime remains unchanged
         p->time_slice = 5;  // Initialize time slice
-        p->vdeadline = p->vruntime + (5 * 1024 / p->weight);  // Recalculate vdeadline
+        // Calculate vdeadline in millitick units (multiply by 1000)
+        p->vdeadline = p->vruntime + (5 * 1024 * 1000 / p->weight);  // Recalculate vdeadline
       }
       release(&p->lock);
     }
@@ -883,7 +887,8 @@ setnice(int pid, int value)
       old_nice = p->nice;
       p->nice = value;
       p->weight = nice_to_weight[value];  // Update weight value
-      p->vdeadline = p->vruntime + (5 * 1024 / p->weight);  // Recalculate vdeadline
+      // Recalculate vdeadline in millitick units (multiply by 1000)
+      p->vdeadline = p->vruntime + (5 * 1024 * 1000 / p->weight);
       release(&p->lock);
       return old_nice;
     }
@@ -980,30 +985,25 @@ ps(int pid)
     else
       state = "???";
     
-    uint64 milli_runtime_per_weight = p->weight > 0 ? (p->runtime * 1000) / p->weight : 0;
-
-    // Convert to millitick units (multiply by 1000)
-    uint64 milli_runtime = p->runtime * 1000;
-    uint64 milli_vruntime = p->vruntime * 1000;
-    uint64 milli_vdeadline = p->vdeadline * 1000;
+    uint64 runtime_per_weight = p->weight > 0 ? (p->runtime * 1000) / p->weight : 0;
 
     if(p->state == RUNNING) {
-      printf("%s\t%d\t%s\t\t%d\t\t%ld\t\t%ld\t\t%ld\t\t%ld\t\t%s\n",
+      printf("%s\t%d\t%s\t\t%d\t\t%ld\t\t%d\t\t%d\t\t%d\t\t%s\n",
             p->name, p->pid, state, p->nice,
-            milli_runtime_per_weight, milli_runtime, milli_vruntime,
-            milli_vdeadline, is_eligible(p, &data) ? "true" : "false");
+            runtime_per_weight, p->runtime * 1000, p->vruntime,
+            p->vdeadline, is_eligible(p, &data) ? "true" : "false");
     }
     else if(p->state == ZOMBIE) {
-      printf("%s\t%d\t%s\t\t%d\t\t%ld\t\t%ld\t\t%ld\t\t%ld\t\t%s\n",
+      printf("%s\t%d\t%s\t\t%d\t\t%ld\t\t%d\t\t%d\t\t%d\t\t%s\n",
             p->name, p->pid, state, p->nice,
-            milli_runtime_per_weight, milli_runtime, milli_vruntime,
-            milli_vdeadline, is_eligible(p, &data) ? "true" : "false");
+            runtime_per_weight, p->runtime * 1000, p->vruntime,
+            p->vdeadline, is_eligible(p, &data) ? "true" : "false");
     }
     else {
-      printf("%s\t%d\t%s\t%d\t\t%ld\t\t%ld\t\t%ld\t\t%ld\t\t%s\n",
+      printf("%s\t%d\t%s\t%d\t\t%ld\t\t%d\t\t%d\t\t%d\t\t%s\n",
             p->name, p->pid, state, p->nice,
-            milli_runtime_per_weight, milli_runtime, milli_vruntime,
-            milli_vdeadline, is_eligible(p, &data) ? "true" : "false");
+            runtime_per_weight, p->runtime * 1000, p->vruntime,
+            p->vdeadline, is_eligible(p, &data) ? "true" : "false");
     }
   }
 }
