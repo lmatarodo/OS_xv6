@@ -390,7 +390,7 @@ fork(void)
   np->weight = p->weight;       // Copy parent's weight value
   np->runtime = 0;              // Initialize actual runtime to 0
   np->vruntime = p->vruntime;   // Copy parent's vruntime value
-  np->vdeadline = np->vruntime + (5 * 1024 / np->weight); // Copy parent's vdeadline value
+  np->vdeadline = np->vruntime + (5 * 1024 * 1000 / np->weight); // Copy parent's vdeadline value
   np->time_slice = 5;           // Initialize time slice
   np->total_tick = 0;           // Initialize total tick count to 0
   np->state = RUNNABLE;
