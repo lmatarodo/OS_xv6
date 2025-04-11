@@ -673,7 +673,7 @@ yield(void)
   // Update vdeadline when time_slice is exhausted
   if(p->time_slice <= 0) {
     // Calculate vdeadline in millitick units (multiply by 1000)
-    p->vdeadline = p->vruntime + (5 * 1024 * 1000 / p->weight);  // Add virtual runtime for next 5 ticks
+    p->vdeadline = p->vruntime + (5 * 1024 * 1000 / p->weight);  
     p->time_slice = 5;  // Reset time slice
   }
   
@@ -755,7 +755,7 @@ wakeup(void *chan)
         // vruntime remains unchanged
         p->time_slice = 5;  // Initialize time slice
         // Calculate vdeadline in millitick units (multiply by 1000)
-        p->vdeadline = p->vruntime + (5 * 1024 * 1000 / p->weight);  // Recalculate vdeadline
+        p->vdeadline = p->vruntime + (5 * 1024 * 1000 / p->weight);  
       }
       release(&p->lock);
     }
