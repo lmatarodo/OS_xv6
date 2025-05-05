@@ -13,3 +13,9 @@
 #define MAXPATH      128   // maximum file path name
 #define USERSTACK    1     // user stack pages
 
+#define PROT_READ     0x1     // read permission
+#define PROT_WRITE    0x2     // write permission
+#define MAP_ANONYMOUS 0x1     // anonymous mapping
+#define MAP_POPULATE  0x2     // pre-populate pages
+#define MAX_MMAP_AREA 64      // max number of mappings
+#define MMAPBASE      0x40000000ULL  // base of mmap region

@@ -1,3 +1,15 @@
+#ifndef _PROC_H_
+#define _PROC_H_
+
+#include "types.h"
+#include "param.h"
+#include "memlayout.h"
+#include "defs.h"
+#include "spinlock.h"
+
+// Forward declaration of file structure
+struct file;
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -31,6 +43,7 @@ extern struct cpu cpus[NCPU];
 // per-process data for the trap handling code in trampoline.S.
 // sits in a page by itself just under the trampoline page in the
 // user page table. not specially mapped in the kernel page table.
+// the sscratch register points here.
 // uservec in trampoline.S saves user registers in the trapframe,
 // then initializes registers from the trapframe's
 // kernel_sp, kernel_hartid, kernel_satp, and jumps to kernel_trap.
@@ -87,6 +100,7 @@ struct proc {
 
   // p->lock must be held when using these:
   enum procstate state;        // Process state
+  struct proc *parent;         // Parent process
   void *chan;                  // If non-zero, sleeping on chan
   int killed;                  // If non-zero, have been killed
   int xstate;                  // Exit status to be returned to parent's wait
@@ -99,9 +113,6 @@ struct proc {
   int weight;                  // Process weight based on nice value
   int total_tick;              // Total ticks since process creation
 
-  // wait_lock must be held when using this:
-  struct proc *parent;         // Parent process
-
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
   uint64 sz;                   // Size of process memory (bytes)
@@ -112,3 +123,5 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 };
+
+#endif // _PROC_H_

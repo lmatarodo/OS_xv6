@@ -7,6 +7,7 @@
 #include "defs.h"
 #include "elf.h"
 #include "kalloc.h" // Used when printing memory info
+#include "mmap.h"   // For mmap_areas
 
 struct cpu cpus[NCPU];
 
@@ -54,6 +55,8 @@ static int nice_to_weight[40] = {
     15      // nice = 39
 };
 
+// Global mmap areas array
+extern struct mmap_area mmap_areas[MAX_MMAP_AREA];
 
 static char *states[] = {
   [UNUSED]    "unused",
@@ -340,6 +343,42 @@ growproc(int n)
   return 0;
 }
 
+// Copy parent's mmap areas to child
+static void
+copy_mmap_areas(struct proc *parent, struct proc *child)
+{
+  for(int i = 0; i < MAX_MMAP_AREA; i++) {
+    if(mmap_areas[i].used && mmap_areas[i].p == parent) {
+      // Find free slot
+      for(int j = 0; j < MAX_MMAP_AREA; j++) {
+        if(!mmap_areas[j].used) {
+          mmap_areas[j] = mmap_areas[i];
+          mmap_areas[j].p = child;
+
+          // 복사 대상 가상 주소 영역
+          uint64 start = mmap_areas[i].addr;
+          uint64 end = start + mmap_areas[i].length;
+
+          for(uint64 addr = start; addr < end; addr += PGSIZE) {
+            pte_t *pte = walk(parent->pagetable, addr, 0);
+            if(pte && (*pte & PTE_V)) {
+              // 부모의 물리 주소
+              uint64 pa = PTE2PA(*pte);
+              char *mem = kalloc();
+              if(mem == 0)
+                panic("copy_mmap_area: kalloc failed");
+              memmove(mem, (char*)pa, PGSIZE);
+              mappages(child->pagetable, addr, PGSIZE, (uint64)mem, PTE_FLAGS(*pte));
+            }
+          }
+
+          break;
+        }
+      }
+    }
+  }
+}
+
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
 int
@@ -361,6 +400,9 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // Copy mmap areas from parent to child
+  copy_mmap_areas(p, np);
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);

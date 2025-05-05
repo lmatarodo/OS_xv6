@@ -1,10 +1,16 @@
 #include "types.h"
+#include "riscv.h"
+#include "defs.h"
 #include "param.h"
 #include "memlayout.h"
-#include "riscv.h"
 #include "spinlock.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 #include "proc.h"
-#include "defs.h"
+#include "kalloc.h"
+#include "mmap.h"
+#include <stddef.h>
 
 struct spinlock tickslock;
 uint ticks;
@@ -15,6 +21,78 @@ extern char trampoline[], uservec[], userret[];
 void kernelvec();
 
 extern int devintr();
+
+// Page fault handler for mmap regions
+static int
+handle_mmap_fault(uint64 fault_addr, uint64 scause)
+{
+  struct proc *p = myproc();
+  struct mmap_area *ma = NULL;
+
+  printf("handle_mmap_fault: addr=0x%lx scause=0x%lx\n", fault_addr, scause);
+
+  // Find the valid mapping record  
+  for (int i = 0; i < MAX_MMAP_AREA; i++) {
+    if (mmap_areas[i].used && mmap_areas[i].p == p &&
+        fault_addr >= mmap_areas[i].addr &&
+        fault_addr < mmap_areas[i].addr + mmap_areas[i].length) {
+      ma = &mmap_areas[i];
+      printf("handle_mmap_fault: found mapping at 0x%lx length=%d\n", 
+             ma->addr, ma->length);
+      break;
+    }
+  }
+  if (ma == NULL) {
+    printf("handle_mmap_fault: no mapping found\n");
+    return -1; // no mapping
+  }
+
+  // Write fault but no write permission?
+  if (scause == 15 && !(ma->prot & PROT_WRITE)) {
+    printf("handle_mmap_fault: write fault but no write permission\n");
+    return -1;
+  }
+
+  // Page-aligned address
+  uint64 va = PGROUNDDOWN(fault_addr);
+
+  // If already mapped, consider handled
+  pte_t *pte = walk(p->pagetable, va, 0);
+  if (pte && (*pte & PTE_V)) {
+    printf("handle_mmap_fault: page already mapped\n");
+    return 1;
+  }
+
+  // Allocate new page
+  char *mem = kalloc();
+  if (mem == NULL) {
+    printf("handle_mmap_fault: kalloc failed\n");
+    return -1;
+  }
+  memset(mem, 0, PGSIZE);
+
+  // File mapping: read content
+  if (!(ma->flags & MAP_ANONYMOUS)) {
+    uint64 file_off = ma->offset + (va - ma->addr);
+    printf("handle_mmap_fault: reading file offset=0x%lx\n", file_off);
+    if (readi(ma->f->ip, 0, (uint64)mem, file_off, PGSIZE) < 0) {
+      printf("handle_mmap_fault: readi failed\n");
+      kfree(mem);
+      return -1;
+    }
+  }
+
+  // Set PTE and flush TLB
+  int perm = PTE_U | PTE_R | ((ma->prot & PROT_WRITE) ? PTE_W : 0);
+  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, perm) < 0) {
+    printf("handle_mmap_fault: mappages failed\n");
+    kfree(mem);
+    return -1;
+  }
+  sfence_vma();
+  printf("handle_mmap_fault: mapped page at 0x%lx\n", va);
+  return 1;
+}
 
 void
 trapinit(void)
@@ -36,44 +114,47 @@ trapinithart(void)
 void
 usertrap(void)
 {
-  int which_dev = 0;
+  uint64 scause = r_scause();
+  uint64 stval = r_stval(); // fault address
+  struct proc *p = myproc();
 
-  if((r_sstatus() & SSTATUS_SPP) != 0)
+  if ((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
 
-  // send interrupts and exceptions to kerneltrap(),
-  // since we're now in the kernel.
+  // Redirect traps to kernelvec
   w_stvec((uint64)kernelvec);
 
-  struct proc *p = myproc();
-  
-  // save user program counter.
+  // Save user PC
   p->trapframe->epc = r_sepc();
-  
-  if(r_scause() == 8){
-    // system call
 
-    if(killed(p))
+  if (scause == 8) {
+    // syscall
+    if (killed(p))
       exit(-1);
-
-    // sepc points to the ecall instruction,
-    // but we want to return to the next instruction.
     p->trapframe->epc += 4;
-
-    // an interrupt will change sepc, scause, and sstatus,
-    // so enable only now that we're done with those registers.
     intr_on();
-
     syscall();
-  } else if((which_dev = devintr()) != 0){
-    // ok
+  } else if (devintr() != 0) {
+    // device interrupt
+  } else if ((scause == 13 || scause == 15) &&
+             stval >= MMAPBASE && stval < MMAPBASE + 0x10000000UL) {
+    // mmap page fault
+    int ret = handle_mmap_fault(stval, scause);
+    if (ret == 1) {
+      // handled: go to usertrapret for proper return
+      usertrapret();
+      return;
+    }
+    // ret == -1: invalid access, kill the process
+    setkilled(p);
   } else {
-    printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
+    // unexpected trap
+    printf("usertrap(): unexpected scause 0x%lx pid=%d\n", scause, p->pid);
+    printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), stval);
     setkilled(p);
   }
 
-  if(killed(p))
+  if (killed(p))
     exit(-1);
 
   usertrapret();

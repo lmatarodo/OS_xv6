@@ -24,7 +24,7 @@ int main(void)
 
   for(int i = 0; i < 10; i++) {
     printf("\n[TEST1] ====== ps 호출 (iteration %d) ======\n", i);
-    ps(pid);
+    //ps(pid);
 
     // sleep을 대신해 busy loop를 넣음 → CPU를 계속 점유하도록 유도
     for (volatile int j = 0; j < 10000000; j++);

@@ -23,6 +23,9 @@ struct {
   struct run *freelist;
 } kmem;
 
+// Track number of free pages
+int freemem_count = 0;
+
 void
 kinit()
 {
@@ -59,6 +62,7 @@ kfree(void *pa)
   acquire(&kmem.lock);
   r->next = kmem.freelist;
   kmem.freelist = r;
+  freemem_count++;   // Increment free page count
   release(&kmem.lock);
 }
 
@@ -74,6 +78,8 @@ kalloc(void)
   r = kmem.freelist;
   if(r)
     kmem.freelist = r->next;
+  if (r)
+    freemem_count--;  // Decrement free page count
   release(&kmem.lock);
 
   if(r)

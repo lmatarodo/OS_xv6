@@ -5,6 +5,30 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
+#include <stdbool.h>
+
+// SV39 페이지 테이블 관련 상수
+#define PGSHIFT 12  // bits of offset within a page
+#define PGMASK (PGSIZE - 1)  // mask for page offset bits
+
+// PTE 플래그
+#define PTE_V (1L << 0) // valid
+#define PTE_R (1L << 1)
+#define PTE_W (1L << 2)
+#define PTE_X (1L << 3)
+#define PTE_U (1L << 4) // user can access
+
+// PTE에서 물리 주소 추출
+#define PTE2PA(pte) (((pte) >> 10) << 12)
+
+// 페이지 테이블 인덱스 계산
+#define PXSHIFT(level) (PGSHIFT+(9*(level)))
+
+// Recursively free page-table pages.
+// All leaf mappings must already have been removed.
+void freewalk(pagetable_t pagetable);
 
 /*
  * the kernel's page table.
@@ -195,6 +219,17 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       kfree((void*)pa);
     }
     *pte = 0;
+  }
+  
+  if (do_free) {
+    // leaf PTE까지 제거된 경우에만 freewalk() 호출
+    pte_t *ptep2 = &pagetable[PX(2, va)];
+    if (*ptep2 & PTE_V) {
+      pagetable_t subtree = (pagetable_t)PTE2PA(*ptep2);
+      freewalk(subtree);
+      *ptep2 = 0;
+      sfence_vma();
+    }
   }
 }
 
