@@ -177,6 +177,18 @@ sys_mmap(void)
   }
   vstart = MMAPBASE + addr;
 
+  // ① 겹침 검사
+  for(int j = 0; j < MAX_MMAP_AREA; j++){
+    if(!mmap_areas[j].used || mmap_areas[j].p != p)
+      continue;
+    uint64 s = mmap_areas[j].addr;
+    uint64 e = s + mmap_areas[j].length;
+    if(!(vstart + length <= s || vstart >= e)){
+      printf("mmap: overlap with existing region\n");
+      return 0;            // 명세대로 실패
+    }
+  }
+
   // validate prot
   if(prot != PROT_READ && prot != (PROT_READ | PROT_WRITE)) {
     printf("mmap: invalid prot=0x%x\n", prot);
@@ -286,13 +298,25 @@ sys_munmap(void)
     printf("munmap: invalid length=%d\n", length);
     return -1;
   }
+  if(addr % PGSIZE != 0) {
+    printf("munmap: invalid alignment addr=0x%lx\n", addr);
+    return -1;
+  }
   if(addr < MMAPBASE || addr + length > MMAPBASE + 0x10000000UL) {
     printf("munmap: invalid address range 0x%lx-0x%lx\n", addr, addr + length);
     return -1;
   }
 
+  return sys_munmap_addrlen(addr, length);
+}
+
+// Internal helper for munmap that doesn't validate arguments
+int
+sys_munmap_addrlen(uint64 addr, int length)
+{
   struct proc *p = myproc();
   struct mmap_area *ma = 0;
+  
   for(int i = 0; i < MAX_MMAP_AREA; i++) {
     if(mmap_areas[i].used && mmap_areas[i].p == p && mmap_areas[i].addr == addr) {
       ma = &mmap_areas[i];
@@ -301,24 +325,18 @@ sys_munmap(void)
   }
 
   if(!ma || length > ma->length) {
-    printf("munmap: no mapping found for addr=0x%lx or length=%d exceeds mapping size=%d\n", 
-           addr, length, ma ? ma->length : 0);
     return -1;
   }
-
-  printf("munmap: found mapping at 0x%lx length=%d\n", ma->addr, ma->length);
 
   // 실제 unmap (leaf PTE + 페이지 해제 + pt0/pt1도 내부적으로 처리)
   int npages = length / PGSIZE;
   uvmunmap(p->pagetable, addr, npages, 1);
+  sfence_vma();            // TLB invalidation
 
   // mmap_area 조정 또는 제거
   if(length == ma->length) {
-    printf("munmap: removing entire mapping\n");
     memset(ma, 0, sizeof(*ma)); // 전체 해제
   } else {
-    printf("munmap: adjusting mapping to 0x%lx length=%d\n", 
-           ma->addr + length, ma->length - length);
     ma->addr   += length;
     ma->offset += length;
     ma->length -= length;

@@ -202,6 +202,25 @@ void            virtio_disk_init(void);
 void            virtio_disk_rw(struct buf *, int);
 void            virtio_disk_intr(void);
 
+// sysproc.c
+uint64          sys_exit(void);
+uint64          sys_getpid(void);
+uint64          sys_fork(void);
+uint64          sys_wait(void);
+uint64          sys_sbrk(void);
+uint64          sys_sleep(void);
+uint64          sys_kill(void);
+uint64          sys_uptime(void);
+uint64          sys_getnice(void);
+uint64          sys_setnice(void);
+uint64          sys_ps(void);
+uint64          sys_meminfo(void);
+uint64          sys_waitpid(void);
+uint64          sys_mmap(void);
+uint64          sys_munmap(void);
+uint64          sys_freemem(void);
+int             sys_munmap_addrlen(uint64 addr, int length);
+
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
 

@@ -456,6 +456,14 @@ reparent(struct proc *p)
   }
 }
 
+void munmap_all(struct proc *p) {
+  for(int i=0; i<MAX_MMAP_AREA; i++){
+    if(mmap_areas[i].used && mmap_areas[i].p == p){
+      sys_munmap_addrlen(mmap_areas[i].addr, mmap_areas[i].length);
+    }
+  }
+}
+
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
 // until its parent calls wait().
@@ -493,6 +501,9 @@ exit(int status)
 
   p->xstate = status;
   p->state = ZOMBIE;
+
+  // Clean up mmap areas before freeing page table
+  munmap_all(p);
 
   release(&wait_lock);
 
