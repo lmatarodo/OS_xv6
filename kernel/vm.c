@@ -9,21 +9,20 @@
 #include "proc.h"
 #include <stdbool.h>
 
-// SV39 페이지 테이블 관련 상수
 #define PGSHIFT 12  // bits of offset within a page
 #define PGMASK (PGSIZE - 1)  // mask for page offset bits
 
-// PTE 플래그
+// PTE flags
 #define PTE_V (1L << 0) // valid
 #define PTE_R (1L << 1)
 #define PTE_W (1L << 2)
 #define PTE_X (1L << 3)
 #define PTE_U (1L << 4) // user can access
 
-// PTE에서 물리 주소 추출
+// Extract physical address from PTE
 #define PTE2PA(pte) (((pte) >> 10) << 12)
 
-// 페이지 테이블 인덱스 계산
+// Calculate page table index
 #define PXSHIFT(level) (PGSHIFT+(9*(level)))
 
 // Recursively free page-table pages.
@@ -366,10 +365,10 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 void
 freewalk(pagetable_t pagetable)
 {
-  // 512개의 엔트리를 순회
+  // traverse 512 entries
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
-    // branch PTE (다음 레벨 테이블 가리킴)
+    // branch PTE (points to next level table)
     if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
       pagetable_t child = (pagetable_t)PTE2PA(pte);
       freewalk(child);
@@ -379,7 +378,7 @@ freewalk(pagetable_t pagetable)
       panic("freewalk: leaf");
     }
   }
-  // 자신(페이지 테이블 페이지) 해제
+  // free self (page table page)
   kfree((void*)pagetable);
 }
 

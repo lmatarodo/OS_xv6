@@ -151,7 +151,8 @@ UPROGS=\
 	$U/_testmap\
 	$U/_testmap2\
 	$U/_testmap3\
-	$U/_testmap4
+	$U/_testmap4\
+	$U/_testmap5
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
