@@ -30,26 +30,58 @@
 // All leaf mappings must already have been removed.
 void freewalk(pagetable_t pagetable);
 
-// Prune empty page tables after unmapping
-static void
-prune_pt(pagetable_t pagetable, uint64 va, uint64 npages)
+// ----------------------------------------------------------------------------
+// Recursively check if a subtree has no leaf PTEs (R/W/X bits)
+// Returns 1 if the subtree is completely empty of leaf mappings
+// Returns 0 if any leaf mapping is found
+// ----------------------------------------------------------------------------
+static int
+subtree_empty(pagetable_t pt)
 {
-  for(uint64 a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    // Get the level-2 page table entry (which points to a level-1 table)
-    pte_t *p1 = &pagetable[PX(2, a)];
-    if((*p1 & PTE_V) == 0) continue; // if the level-2 page table is not valid, skip
+  // Iterate through all 512 entries in the page table
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pt[i];
+    if(!(pte & PTE_V))
+      continue;  // Skip if not valid (no mapping or table pointer)
 
-  
-    pagetable_t l1 = (pagetable_t)PTE2PA(*p1);
-    // check if the level-1 table is empty
-    int empty = 1;
-    for(int i = 0; i < 512; i++)
-      if(l1[i] & PTE_V){ empty = 0; break; }
+    // Check if this is a leaf mapping (has R/W/X bits)
+    if(pte & (PTE_R|PTE_W|PTE_X))
+      return 0;  // Found a leaf mapping, subtree is not empty
 
-    if(empty){
-      freewalk(l1); // free the level-1 page table
-      *p1 = 0; // remove Level-2 entry
-    }
+    // This is a table pointer, recursively check the next level
+    pagetable_t child = (pagetable_t)PTE2PA(pte);
+    if(!subtree_empty(child))
+      return 0;  // Subtree contains leaf mappings
+  }
+  return 1;  // No leaf mappings found in this subtree
+}
+
+// -----------------------------------------------------------------------------
+// Helper function: For the range va ~ va+npages*PGSIZE,
+// find Root→L1 entries where subtree_empty is true,
+// then free the page tables and clear the Root PTE
+// -----------------------------------------------------------------------------
+static void
+prune_pt(pagetable_t pagetable, uint64 start_va, uint64 npages)
+{
+  // Calculate the range of Level-2 indices to check
+  uint64 first = PX(2, start_va);
+  uint64 last  = PX(2, start_va + (npages-1)*PGSIZE);
+  for(uint64 idx = first; idx <= last; idx++){
+    pte_t *ptep2 = &pagetable[idx];
+    if(!(*ptep2 & PTE_V))
+      continue;  // Skip if no valid mapping
+
+    pagetable_t l1 = (pagetable_t)PTE2PA(*ptep2);
+    // Check if this subtree is completely empty of leaf mappings
+    if(!subtree_empty(l1))
+      continue;  // Skip if subtree still has leaf mappings
+
+    // Subtree is completely empty, free all page tables
+    freewalk(l1);  // Frees L1, L0 tables and the table itself
+
+    // Clear the Root PTE
+    *ptep2 = 0;
   }
 }
 
@@ -218,36 +250,39 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   return 0;
 }
 
-// Remove npages of mappings starting from va. va must be
-// page-aligned. The mappings must exist.
-// Optionally free the physical memory.
+// -----------------------------------------------------------------------------
+// uvmunmap: Unmap pages in the range va ~ va+npages*PGSIZE
+// If do_free is 1, also free the physical pages
+// Then clean up empty page tables using prune_pt
+// -----------------------------------------------------------------------------
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
-  uint64 a;
-  pte_t *pte;
-
   if((va % PGSIZE) != 0)
     panic("uvmunmap: not aligned");
 
-  for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
-      continue;  // if PTE is not found, skip
-    if((*pte & PTE_V) == 0)
-      continue;  // if the page is not mapped, skip
+  // 1) Free leaf PTEs (data pages)
+  for(uint64 a = va; a < va + npages*PGSIZE; a += PGSIZE){
+    pte_t *pte = walk(pagetable, a, 0);
+    if(pte == 0 || !(*pte & PTE_V))
+      continue;  // Skip if no valid mapping
     if(PTE_FLAGS(*pte) == PTE_V)
-      panic("uvmunmap: not a leaf");
+      panic("uvmunmap: not a leaf");  // Must be a leaf mapping
+
     if(do_free){
       uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+      memset((void*)pa, 1, PGSIZE);  // Prevent dangling pointers
+      kfree((void*)pa);              // Free the physical page
     }
-    *pte = 0;
+    *pte = 0;  // Clear the PTE
   }
-  
-  if (do_free) {
-    // clean up empty page tables
+
+  if(do_free){
+    // 2) Clean up empty page tables
     prune_pt(pagetable, va, npages);
-    sfence_vma(); // TLB flush
+
+    // 3) Flush TLB to ensure changes take effect
+    sfence_vma();
   }
 }
 
@@ -331,20 +366,21 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 void
 freewalk(pagetable_t pagetable)
 {
-  // there are 2^9 = 512 PTEs in a page table.
+  // 512개의 엔트리를 순회
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
+    // branch PTE (다음 레벨 테이블 가리킴)
     if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
-      // this PTE points to a lower-level page table.
-      // recursively free the lower-level page table.
-      uint64 child = PTE2PA(pte);
-      freewalk((pagetable_t)child);
+      pagetable_t child = (pagetable_t)PTE2PA(pte);
+      freewalk(child);
       pagetable[i] = 0;
     } else if(pte & PTE_V){
-      panic("freewalk: leaf"); // if still valid, panic
+      // leaf가 남아 있으면 안 됨
+      panic("freewalk: leaf");
     }
   }
-  kfree((void*)pagetable); // free the page table(self)
+  // 자신(페이지 테이블 페이지) 해제
+  kfree((void*)pagetable);
 }
 
 // Free user memory pages,

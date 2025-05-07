@@ -192,7 +192,7 @@ sys_mmap(void)
 
   // validate prot
   if(prot != PROT_READ && prot != (PROT_READ | PROT_WRITE)) {
-    //printf("mmap: invalid prot=0x%x\n", prot);
+    // printf("mmap: invalid prot=0x%x\n", prot);
     return 0;
   }
 
