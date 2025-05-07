@@ -30,6 +30,29 @@
 // All leaf mappings must already have been removed.
 void freewalk(pagetable_t pagetable);
 
+// Prune empty page tables after unmapping
+static void
+prune_pt(pagetable_t pagetable, uint64 va, uint64 npages)
+{
+  for(uint64 a = va; a < va + npages*PGSIZE; a += PGSIZE){
+    // Get the level-2 page table entry (which points to a level-1 table)
+    pte_t *p1 = &pagetable[PX(2, a)];
+    if((*p1 & PTE_V) == 0) continue; // if the level-2 page table is not valid, skip
+
+  
+    pagetable_t l1 = (pagetable_t)PTE2PA(*p1);
+    // check if the level-1 table is empty
+    int empty = 1;
+    for(int i = 0; i < 512; i++)
+      if(l1[i] & PTE_V){ empty = 0; break; }
+
+    if(empty){
+      freewalk(l1); // free the level-1 page table
+      *p1 = 0; // remove Level-2 entry
+    }
+  }
+}
+
 /*
  * the kernel's page table.
  */
@@ -209,9 +232,9 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      continue;  // if PTE is not found, skip
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      continue;  // if the page is not mapped, skip
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -222,14 +245,9 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   }
   
   if (do_free) {
-    // leaf PTE까지 제거된 경우에만 freewalk() 호출
-    pte_t *ptep2 = &pagetable[PX(2, va)];
-    if (*ptep2 & PTE_V) {
-      pagetable_t subtree = (pagetable_t)PTE2PA(*ptep2);
-      freewalk(subtree);
-      *ptep2 = 0;
-      sfence_vma();
-    }
+    // clean up empty page tables
+    prune_pt(pagetable, va, npages);
+    sfence_vma(); // TLB flush
   }
 }
 
@@ -318,14 +336,15 @@ freewalk(pagetable_t pagetable)
     pte_t pte = pagetable[i];
     if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
       // this PTE points to a lower-level page table.
+      // recursively free the lower-level page table.
       uint64 child = PTE2PA(pte);
       freewalk((pagetable_t)child);
       pagetable[i] = 0;
     } else if(pte & PTE_V){
-      panic("freewalk: leaf");
+      panic("freewalk: leaf"); // if still valid, panic
     }
   }
-  kfree((void*)pagetable);
+  kfree((void*)pagetable); // free the page table(self)
 }
 
 // Free user memory pages,

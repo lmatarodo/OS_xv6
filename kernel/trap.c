@@ -29,27 +29,27 @@ handle_mmap_fault(uint64 fault_addr, uint64 scause)
   struct proc *p = myproc();
   struct mmap_area *ma = NULL;
 
-  printf("handle_mmap_fault: addr=0x%lx scause=0x%lx\n", fault_addr, scause);
+  // printf("handle_mmap_fault: addr=0x%lx scause=0x%lx\n", fault_addr, scause);
 
-  // Find the valid mapping record  
+  // Find the valid mapping record that matches the fault address
   for (int i = 0; i < MAX_MMAP_AREA; i++) {
     if (mmap_areas[i].used && mmap_areas[i].p == p &&
         fault_addr >= mmap_areas[i].addr &&
         fault_addr < mmap_areas[i].addr + mmap_areas[i].length) {
       ma = &mmap_areas[i];
-      printf("handle_mmap_fault: found mapping at 0x%lx length=%d\n", 
-             ma->addr, ma->length);
+      // printf("handle_mmap_fault: found mapping at 0x%lx length=%d\n", 
+      //        ma->addr, ma->length);
       break;
     }
   }
   if (ma == NULL) {
-    printf("handle_mmap_fault: no mapping found\n");
+    // printf("handle_mmap_fault: no mapping found\n");
     return -1; // no mapping
   }
 
-  // Write fault but no write permission?
+  // Write fault but no write permission
   if (scause == 15 && !(ma->prot & PROT_WRITE)) {
-    printf("handle_mmap_fault: write fault but no write permission\n");
+    // printf("handle_mmap_fault: write fault but no write permission\n");
     return -1;
   }
 
@@ -59,38 +59,37 @@ handle_mmap_fault(uint64 fault_addr, uint64 scause)
   // If already mapped, consider handled
   pte_t *pte = walk(p->pagetable, va, 0);
   if (pte && (*pte & PTE_V)) {
-    printf("handle_mmap_fault: page already mapped\n");
+    // printf("handle_mmap_fault: page already mapped\n");
     return 1;
   }
 
-  // Allocate new page
+  // Allocate new physical page
   char *mem = kalloc();
   if (mem == NULL) {
-    printf("handle_mmap_fault: kalloc failed\n");
+    // printf("handle_mmap_fault: kalloc failed\n");
     return -1;
   }
-  memset(mem, 0, PGSIZE);
+  memset(mem, 0, PGSIZE); // fill with 0
 
-  // File mapping: read content
+  // File mapping: read content from file
   if (!(ma->flags & MAP_ANONYMOUS)) {
     uint64 file_off = ma->offset + (va - ma->addr);
-    printf("handle_mmap_fault: reading file offset=0x%lx\n", file_off);
+    // printf("handle_mmap_fault: reading file offset=0x%lx\n", file_off);
     if (readi(ma->f->ip, 0, (uint64)mem, file_off, PGSIZE) < 0) {
-      printf("handle_mmap_fault: readi failed\n");
+      // printf("handle_mmap_fault: readi failed\n");
       kfree(mem);
       return -1;
     }
   }
 
-  // Set PTE and flush TLB
-  int perm = PTE_U | PTE_R | ((ma->prot & PROT_WRITE) ? PTE_W : 0);
-  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, perm) < 0) {
-    printf("handle_mmap_fault: mappages failed\n");
+  int perm = PTE_U | PTE_R | ((ma->prot & PROT_WRITE) ? PTE_W : 0); // set PTE flag
+  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, perm) < 0) { // map page table
+    // printf("handle_mmap_fault: mappages failed\n");
     kfree(mem);
     return -1;
   }
-  sfence_vma();
-  printf("handle_mmap_fault: mapped page at 0x%lx\n", va);
+  sfence_vma(); // TLB invalidation
+  // printf("handle_mmap_fault: mapped page at 0x%lx\n", va);
   return 1;
 }
 

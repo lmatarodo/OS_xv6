@@ -348,26 +348,34 @@ static void
 copy_mmap_areas(struct proc *parent, struct proc *child)
 {
   for(int i = 0; i < MAX_MMAP_AREA; i++) {
-    if(mmap_areas[i].used && mmap_areas[i].p == parent) {
-      // Find free slot
+    // Select the mmap area that is used and the parent process
+    if(mmap_areas[i].used && mmap_areas[i].p == parent) { 
+      // Find free slot for the child process
       for(int j = 0; j < MAX_MMAP_AREA; j++) {
         if(!mmap_areas[j].used) {
+          // Copy the mmap area to the child process
           mmap_areas[j] = mmap_areas[i];
           mmap_areas[j].p = child;
 
-          // 복사 대상 가상 주소 영역
+          // Copy the virtual address range of the mmap area
           uint64 start = mmap_areas[i].addr;
           uint64 end = start + mmap_areas[i].length;
 
+  
           for(uint64 addr = start; addr < end; addr += PGSIZE) {
+            // Get the page table entry of the parent process
             pte_t *pte = walk(parent->pagetable, addr, 0);
+            // If the page table entry is valid
             if(pte && (*pte & PTE_V)) {
-              // 부모의 물리 주소
+              // Get the physical address of the parent process
               uint64 pa = PTE2PA(*pte);
+              // Allocate a new page for the child process
               char *mem = kalloc();
               if(mem == 0)
                 panic("copy_mmap_area: kalloc failed");
+              // Copy the page content from the parent process to the new page
               memmove(mem, (char*)pa, PGSIZE);
+              // Map the new page to the child process
               mappages(child->pagetable, addr, PGSIZE, (uint64)mem, PTE_FLAGS(*pte));
             }
           }

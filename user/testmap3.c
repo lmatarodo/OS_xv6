@@ -42,23 +42,23 @@ void test_invalid_args() {
   check(p == (void*)0, "mmap with bad fd should fail");
 }
 
-// B. mmap_area 슬롯 한도 테스트
-// void test_mapping_limit() {
-//   printf("\nB. Mapping Limit Tests\n");
-//   void *areas[70];
-//   int i, cnt = 0;
-//   for (i = 0; i < 70; i++) {
-//     void *p = (void*)mmap(i * PGSIZE, PGSIZE, PROT_READ|PROT_WRITE,
-//                     MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
-//     if(p == (void*)0) break;
-//     areas[cnt++] = p;
-//   }
-//   // 65번째는 실패
-//   void *p = (void*)mmap(65 * PGSIZE, PGSIZE, PROT_READ, MAP_ANONYMOUS, -1, 0);
-//   check(p == (void*)0, "65th mapping should fail");
-//   // 정리
-//   for (i = 0; i < cnt; i++) munmap((uint64)areas[i], PGSIZE);
-// }
+//B. mmap_area 슬롯 한도 테스트
+void test_mapping_limit() {
+  printf("\nB. Mapping Limit Tests\n");
+  void *areas[70];
+  int i, cnt = 0;
+  for (i = 0; i < 70; i++) {
+    void *p = (void*)mmap(i * PGSIZE, PGSIZE, PROT_READ|PROT_WRITE,
+                    MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
+    if(p == (void*)0) break;
+    areas[cnt++] = p;
+  }
+  // 65번째는 실패
+  void *p = (void*)mmap(65 * PGSIZE, PGSIZE, PROT_READ, MAP_ANONYMOUS, -1, 0);
+  check(p == (void*)0, "65th mapping should fail");
+  // 정리
+  for (i = 0; i < cnt; i++) munmap((uint64)areas[i], PGSIZE);
+}
 
 // C. 보호 위반 테스트
 void test_protection_violation() {
@@ -96,21 +96,21 @@ void test_overlap_mapping() {
 }
 
 //E. 부분 munmap 테스트
-// void test_partial_munmap() {
-//   printf("\nE. Partial munmap Tests\n");
-//   char *p = (char*)mmap(0, 2*PGSIZE, PROT_READ|PROT_WRITE,
-//                  MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
-//   check(p != (char*)-1, "mmap failed");
-//   // 첫 페이지만 해제
-//   int r = munmap((uint64)p, PGSIZE);
-//   check(r == 1, "partial munmap should succeed");
-//   // 두 번째 페이지 여전히 사용 가능
-//   p[PGSIZE] = 42;
-//   check(p[PGSIZE] == 42, "second page should remain mapped");
-//   // 나머지 페이지 해제
-//   r = munmap((uint64)(p + PGSIZE), PGSIZE);
-//   check(r == 1, "second munmap should succeed");
-// }
+void test_partial_munmap() {
+  printf("\nE. Partial munmap Tests\n");
+  char *p = (char*)mmap(0, 2*PGSIZE, PROT_READ|PROT_WRITE,
+                 MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
+  check(p != (char*)-1, "mmap failed");
+  // 첫 페이지만 해제
+  int r = munmap((uint64)p, PGSIZE);
+  check(r == 1, "partial munmap should succeed");
+  // 두 번째 페이지 여전히 사용 가능
+  p[PGSIZE] = 42;
+  check(p[PGSIZE] == 42, "second page should remain mapped");
+  // 나머지 페이지 해제
+  r = munmap((uint64)(p + PGSIZE), PGSIZE);
+  check(r == 1, "second munmap should succeed");
+}
 
 //E2. 이중 munmap 테스트
 void test_double_munmap() {
@@ -124,9 +124,9 @@ void test_double_munmap() {
   check(r2 == -1, "second munmap should fail");
 }
 
-//F. Copy-on-Write 심화 테스트
-void test_cow_deep() {
-  printf("\nF. COW Deep Tests\n");
+//F. Fork 심화 테스트
+void test_fork_deep() {
+  printf("\nF. Fork Deep Tests\n");
   char *p = (char*)mmap(0, PGSIZE, PROT_READ|PROT_WRITE,
                  MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
   check(p != (char*)-1, "mmap failed");
@@ -197,12 +197,12 @@ void test_freemem_consistency() {
 int main() {
   printf("Starting edge-case mmap/munmap tests...\n");
   test_invalid_args();
-  //test_mapping_limit();
+  test_mapping_limit();
   test_protection_violation();
   test_overlap_mapping();
-  //test_partial_munmap();
+  test_partial_munmap();
   test_double_munmap();
-  test_cow_deep();
+  test_fork_deep();
   test_file_offset();
   test_large_mapping();
   test_freemem_consistency();
