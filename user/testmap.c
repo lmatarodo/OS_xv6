@@ -31,14 +31,14 @@ void test_fork_mmap(void) {
     for (int i = 0; i < len; i++) check(ptr[i] == (char)i, "child: content mismatch");
     for (int i = 0; i < len; i++) ptr[i] = (char)(i + 1);
     for (int i = 0; i < len; i++) check(ptr[i] == (char)(i + 1), "child: post-write mismatch");
-    ret = munmap((uint64)ptr, len);
+    ret = munmap((uint64)ptr);
     printf("Child: munmap returned %d\n", ret);
     check(ret == 1, "child: munmap failed");
     exit(0);
   } else {
     wait(0);
     for (int i = 0; i < len; i++) check(ptr[i] == (char)i, "parent: content changed by child");
-    ret = munmap((uint64)ptr, len);
+    ret = munmap((uint64)ptr);
     printf("Parent: munmap returned %d\n", ret);
     check(ret == 1, "parent: munmap failed");
   }
@@ -57,7 +57,7 @@ void test_file_mapping(int populate) {
   check(ptr != (char*)-1, "mmap failed");
   for (int i = 0; i < len; i++) printf("%c", ptr[i]);
   printf("\n");
-  int ret = munmap((uint64)ptr, len);
+  int ret = munmap((uint64)ptr);
   printf("munmap returned %d\n", ret);
   check(ret == 1, "munmap failed");
   close(fd);
@@ -75,7 +75,7 @@ void test_anonymous_mapping(int populate) {
   check(ptr != (char*)-1, "mmap failed");
   for (int i = 0; i < len; i++) ptr[i] = (char)i;
   for (int i = 0; i < len; i++) check(ptr[i] == (char)i, "memory content mismatch");
-  int ret = munmap((uint64)ptr, len);
+  int ret = munmap((uint64)ptr);
   printf("munmap returned %d\n", ret);
   check(ret == 1, "munmap failed");
   int freed = freemem();
@@ -91,7 +91,7 @@ void test_large_mapping(void) {
   check(ptr != (char*)-1, "mmap failed");
   for (int i = 0; i < len; i++) ptr[i] = (char)i;
   for (int i = 0; i < len; i++) check(ptr[i] == (char)i, "memory content mismatch");
-  int ret = munmap((uint64)ptr, len);
+  int ret = munmap((uint64)ptr);
   printf("munmap returned %d\n", ret);
   check(ret == 1, "munmap failed");
 }

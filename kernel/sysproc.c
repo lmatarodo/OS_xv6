@@ -282,36 +282,38 @@ error:
   return 0;
 }
 
+// ... existing code ...
+
 uint64
 sys_munmap(void)
 {
   uint64 addr;
-  int length;
-
-  // fetch args
+  // Get the address to unmap from user space
   argaddr(0, &addr);
-  argint(1, &length);
 
-  // printf("munmap: addr=0x%lx length=%d\n", addr, length);
-  
-  // validate length
-  if(length <= 0 || length % PGSIZE != 0) {
-    // printf("munmap: invalid length=%d\n", length);
+  // Check if the address is page-aligned
+  if (addr % PGSIZE != 0)
     return -1;
-  }
-  // validate alignment
-  if(addr % PGSIZE != 0) {
-    // printf("munmap: invalid alignment addr=0x%lx\n", addr);
-    return -1;
-  }
-  // validate address range
-  if(addr < MMAPBASE || addr + length > MMAPBASE + 0x10000000UL) {
-    // printf("munmap: invalid address range 0x%lx-0x%lx\n", addr, addr + length);
-    return -1;
-  }
 
-  return sys_munmap_addrlen(addr, length);
+  struct proc *p = myproc();
+  struct mmap_area *ma = NULL;
+  // Find the exact mapping that matches the given address
+  for (int i = 0; i < MAX_MMAP_AREA; i++) {
+    if (mmap_areas[i].used
+        && mmap_areas[i].p == p
+        && mmap_areas[i].addr == addr) {
+      ma = &mmap_areas[i];
+      break;
+    }
+  }
+  if (!ma)   // Return error if no mapping found
+    return -1;
+
+  // Pass the entire mapping length to sys_munmap_addrlen
+  // All validations (length, alignment, address range) will be performed there
+  return sys_munmap_addrlen(addr, ma->length);
 }
+
 
 // Internal helper for munmap 
 int

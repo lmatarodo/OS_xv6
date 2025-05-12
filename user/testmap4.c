@@ -21,7 +21,7 @@ void test_lazy_unaccessed_unmap() {
   printf("\nTest 1: Lazy Mapping without Access\n");
   void *p = (void*)mmap(0, PGSIZE, PROT_READ|PROT_WRITE, MAP_ANONYMOUS, -1, 0);
   check(p != (void*)-1, "lazy mmap failed");
-  int r = munmap((uint64)p, PGSIZE);
+  int r = munmap((uint64)p);
   check(r == 1, "munmap without access should succeed");
 }
 
@@ -31,7 +31,7 @@ void test_partial_fault_then_unmap() {
   char *p = (char*)mmap(0, 3*PGSIZE, PROT_READ|PROT_WRITE, MAP_ANONYMOUS, -1, 0);
   check(p != (char*)-1, "mmap failed");
   p[PGSIZE] = 42; // 중간 페이지만 fault 유도
-  int r = munmap((uint64)p, 3*PGSIZE);
+  int r = munmap((uint64)p);
   check(r == 1, "munmap with partial fault should succeed");
 }
 
@@ -51,12 +51,12 @@ void test_remap_after_unmap() {
   void *p1 = (void*)mmap(0, PGSIZE, PROT_READ|PROT_WRITE,
                          MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
   check(p1 != (void*)-1, "first mmap failed");
-  int r = munmap((uint64)p1, PGSIZE);
+  int r = munmap((uint64)p1);
   check(r == 1, "munmap failed");
   void *p2 = (void*)mmap(0, PGSIZE, PROT_READ|PROT_WRITE,
                          MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
   check(p2 != (void*)0, "remap after unmap failed");
-  munmap((uint64)p2, PGSIZE);
+  munmap((uint64)p2);
 }
 
 // 5. munmap 길이가 매핑보다 길 경우 실패
@@ -65,10 +65,10 @@ void test_invalid_munmap_length() {
   void *p = (void*)mmap(0, PGSIZE, PROT_READ|PROT_WRITE,
                         MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
   check(p != (void*)-1, "mmap failed");
-  int r = munmap((uint64)p, 2*PGSIZE); // 과도한 해제
+  int r = munmap((uint64)p); // 과도한 해제
   check(r == -1, "munmap with too large length should fail");
   // 정상 해제
-  munmap((uint64)p, PGSIZE);
+  munmap((uint64)p);
 }
 
 // 6. fork 후 freemem 변화 확인
@@ -95,7 +95,7 @@ void test_fork_freemem_change() {
     // 자식이 2 페이지 복사했으면 2 줄어들어야 정상
     check(after <= before - 2, "fork should consume physical pages");
 
-    munmap((uint64)p, 2 * PGSIZE);
+    munmap((uint64)p);
   }
 }
 

@@ -57,7 +57,7 @@ void test_mapping_limit() {
   void *p = (void*)mmap(65 * PGSIZE, PGSIZE, PROT_READ, MAP_ANONYMOUS, -1, 0);
   check(p == (void*)0, "65th mapping should fail");
   // 정리
-  for (i = 0; i < cnt; i++) munmap((uint64)areas[i], PGSIZE);
+  for (i = 0; i < cnt; i++) munmap((uint64)areas[i]);
 }
 
 // C. 보호 위반 테스트
@@ -76,7 +76,7 @@ void test_protection_violation() {
     wait(&rc);
     check(rc != 0, "read-only write should kill process");
   }
-  munmap((uint64)p, PGSIZE);
+  munmap((uint64)p);
 }
 
 // D. 중첩 매핑 테스트
@@ -92,7 +92,7 @@ void test_overlap_mapping() {
                    PROT_READ|PROT_WRITE, MAP_ANONYMOUS, -1, 0);
   check(p2 == (void*)0, "overlap mapping should fail");
   
-  munmap((uint64)p1, 2*PGSIZE);
+  munmap((uint64)p1);
 }
 
 //E. 부분 munmap 테스트
@@ -102,13 +102,13 @@ void test_partial_munmap() {
                  MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
   check(p != (char*)-1, "mmap failed");
   // 첫 페이지만 해제
-  int r = munmap((uint64)p, PGSIZE);
+  int r = munmap((uint64)p);
   check(r == 1, "partial munmap should succeed");
   // 두 번째 페이지 여전히 사용 가능
   p[PGSIZE] = 42;
   check(p[PGSIZE] == 42, "second page should remain mapped");
   // 나머지 페이지 해제
-  r = munmap((uint64)(p + PGSIZE), PGSIZE);
+  r = munmap((uint64)(p + PGSIZE));
   check(r == 1, "second munmap should succeed");
 }
 
@@ -118,9 +118,9 @@ void test_double_munmap() {
   void *p = (void*)mmap(0, PGSIZE, PROT_READ|PROT_WRITE,
                  MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
   check(p != (void*)-1, "mmap failed");
-  int r1 = munmap((uint64)p, PGSIZE);
+  int r1 = munmap((uint64)p);
   check(r1 == 1, "first munmap should succeed");
-  int r2 = munmap((uint64)p, PGSIZE);
+  int r2 = munmap((uint64)p);
   check(r2 == -1, "second munmap should fail");
 }
 
@@ -138,13 +138,13 @@ void test_fork_deep() {
     for (int i = 0; i < PGSIZE; i++) check(p[i] == (char)i, "child initial mismatch");
     for (int i = 0; i < PGSIZE; i++) p[i] = (char)(i+1);
     for (int i = 0; i < PGSIZE; i++) check(p[i] == (char)(i+1), "child write mismatch");
-    munmap((uint64)p, PGSIZE);
+    munmap((uint64)p);
     exit(0);
   } else {
     wait(0);
     // 부모: 원본 값 유지
     for (int i = 0; i < PGSIZE; i++) check(p[i] == (char)i, "parent content changed");
-    munmap((uint64)p, PGSIZE);
+    munmap((uint64)p);
   }
 }
 
@@ -162,7 +162,7 @@ void test_file_offset() {
   // 파일 사이즈 계산
   while (sz < len && p[sz] != '\0') sz++;
   for (int i = sz; i < len; i++) check(p[i] == 0, "padding beyond EOF should be zero");
-  munmap((uint64)p, len);
+  munmap((uint64)p);
   close(fd);
 }
 
@@ -185,7 +185,7 @@ void test_freemem_consistency() {
     // 자식: 매핑 & 해제
     void *p = (void*)mmap(0, PGSIZE, PROT_READ|PROT_WRITE,
                    MAP_ANONYMOUS|MAP_POPULATE, -1, 0);
-    munmap((uint64)p, PGSIZE);
+    munmap((uint64)p);
     exit(0);
   } else {
     wait(0);

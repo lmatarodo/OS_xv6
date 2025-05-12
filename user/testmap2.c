@@ -56,7 +56,7 @@ test_fork_mmap(void)
     }
     
     // Child unmaps
-    ret = munmap((uint64)ptr, len);
+    ret = munmap((uint64)ptr);
     printf("Child: munmap returned %d\n", ret);
     check(ret == 1, "child: munmap failed");
     
@@ -71,7 +71,7 @@ test_fork_mmap(void)
     }
     
     // Parent unmaps
-    ret = munmap((uint64)ptr, len);
+    ret = munmap((uint64)ptr);
     printf("Parent: munmap returned %d\n", ret);
     check(ret == 1, "parent: munmap failed");
   }
@@ -105,7 +105,7 @@ main(int argc, char *argv[])
   }
   
   // Cleanup
-  ret = munmap((uint64)ptr, len);
+  ret = munmap((uint64)ptr);
   printf("munmap returned %d\n", ret);
   check(ret == 1, "munmap failed");
 
@@ -129,7 +129,7 @@ main(int argc, char *argv[])
   }
   
   // Cleanup
-  ret = munmap((uint64)ptr, len);
+  ret = munmap((uint64)ptr);
   printf("munmap returned %d\n", ret);
   check(ret == 1, "munmap failed");
 
@@ -148,7 +148,7 @@ main(int argc, char *argv[])
   printf("\n");
   
   // Cleanup
-  ret = munmap((uint64)ptr, len);
+  ret = munmap((uint64)ptr);
   printf("munmap returned %d\n", ret);
   check(ret == 1, "munmap failed");
   close(fd);
@@ -168,7 +168,7 @@ main(int argc, char *argv[])
   printf("\n");
   
   // Cleanup
-  ret = munmap((uint64)ptr, len);
+  ret = munmap((uint64)ptr);
   printf("munmap returned %d\n", ret);
   check(ret == 1, "munmap failed");
   close(fd);
@@ -190,7 +190,7 @@ main(int argc, char *argv[])
   }
   
   // Cleanup
-  ret = munmap((uint64)ptr, len);
+  ret = munmap((uint64)ptr);
   printf("munmap returned %d\n", ret);
   check(ret == 1, "munmap failed");
 
@@ -204,4 +204,3 @@ main(int argc, char *argv[])
   printf("All tests passed!\n");
   exit(0);
 }
-
